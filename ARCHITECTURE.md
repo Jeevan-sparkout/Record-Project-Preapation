@@ -251,8 +251,8 @@ graph TD
 - **Key Functions:**
   - `createLMSRMarketMaker(ConditionalTokens pmSystem, IERC20 collateralToken, bytes32[] conditionIds, uint64 fee, address whitelist, uint256 funding)`: Clones master implementation, pulls `funding` collateral, calls `initialize()`.
 
-### 3.4 LMSRMarketMaker.sol (AMM Liquidity Pool)
-- **Purpose:** Algorithmic liquidity provider and pricing engine.
+### 3.4 LMSRMarketMaker.sol (AMM Liquidity Pool & Staking Vault)
+- **Purpose:** Algorithmic liquidity provider, pricing engine, and user-delegated staking vault.
 - **State Variables:**
   - `ConditionalTokens public pmSystem`: Reference to global ERC-1155 contract.
   - `IERC20 public collateralToken`: Reference to `FKToken`.
@@ -260,11 +260,20 @@ graph TD
   - `uint256 public atomicOutcomeSlotCount`: Number of outcomes (2 for binary).
   - `uint64 public fee`: Fee fraction (e.g., 2 * 10^16 for 2%).
   - `int256[] public netOutcomeTokensSold`: Array tracking net liabilities ($q_{yes}, q_{no}$).
+  - `uint256 public totalLPTokenSupply`: Total supply of LP tokens representing stakes.
+  - `mapping(address => uint256) public lpTokenBalanceOf`: LP token ledger of stakers.
+  - `uint256 public activeTradingLiquidity`: Collateral currently utilized in LMSR active reserves.
+  - `uint256 public poolFeeCollected`: Accumulated transaction fees.
+  - `uint64 public lpRewardRatio`: Percentage of fees distributed to LPs vs. protocol.
 - **Key Functions:**
   - `initialize(...)`: Sets clone parameters and mints initial inventory ($b$).
   - `trade(int256[] outcomeTokenAmounts, int256 collateralLimit)`: Executes buy/sell trade.
   - `calcNetCost(int256[] outcomeTokenAmounts) public view returns (int256 netCost)`: Calculates cost difference.
   - `calcMarginalPrice(uint8 outcomeIndex) public view returns (uint256 price)`: Returns spot price.
+  - `depositLiquidity(uint256 collateralAmount)`: Pulls collateral from staker, mints LP tokens 1:1.
+  - `withdrawLiquidity(uint256 lpTokenAmount)`: Burns LP tokens, returns collateral + share of collected fee rewards.
+  - `allocateDelegatedLiquidity(uint256 amount)`: Admin-only. Moves collateral from staking pool to active trading reserves (scales $b$).
+  - `setFeeRewardDistribution(uint64 ratio)`: Admin-only. Configures fee sharing ratio.
 
 ### 3.5 Direct Admin Wallet (Oracle Role)
 - **Purpose:** Directly calls `ConditionalTokens` to initialize markets and conclude outcomes, avoiding contract proxy overhead.
@@ -309,10 +318,19 @@ graph TD
 
 ### 4.5 Admin Outcome Resolution & Settlement
 1. Video deadline hits (e.g., hit 1M views = YES).
-2. Recrd Admin calls `AdminOracle.resolveMarket(questionId, [1, 0])`.
-3. `AdminOracle` calls `ConditionalTokens.reportPayouts(questionId, [1, 0])`.
-4. Alice calls `ConditionalTokens.redeemPositions(FKToken, 0x0, conditionId, [1])`.
-5. `ConditionalTokens` burns Alice's YES tokens and transfers `FKToken` collateral 1:1 to Alice.
+2. Recrd Admin calls `ConditionalTokens.reportPayouts(questionId, [1, 0])` directly.
+3. Alice calls `ConditionalTokens.redeemPositions(FKToken, 0x0, conditionId, [1])`.
+4. `ConditionalTokens` burns Alice's YES tokens and transfers `FKToken` collateral 1:1 to Alice.
+
+### 4.6 User Delegated Liquidity Provision & Reward Distribution Flow
+1. Bob (Staker) approves `LMSRMarketMaker` to spend `1000 FKToken`.
+2. Bob calls `LMSRMarketMaker.depositLiquidity(1000 * 10^18)`.
+3. `LMSRMarketMaker` transfers `1000 FKToken` from Bob to its staking balance and mints `1000 LP` tokens to Bob.
+4. Recrd Admin calls `LMSRMarketMaker.allocateDelegatedLiquidity(500 * 10^18)` to move `500 FKToken` into the active trading reserves (increasing $b$ parameter depth).
+5. As trades occur, a fee (e.g., 2%) is collected and added to `poolFeeCollected`.
+6. Recrd Admin sets LP share: `LMSRMarketMaker.setFeeRewardDistribution(80 * 10^16)` (80% fee rewards to LPs, 20% to protocol).
+7. Bob calls `LMSRMarketMaker.withdrawLiquidity(1000 * 10^18)`.
+8. `LMSRMarketMaker` calculates Bob's share of `poolFeeCollected` based on his LP share, burns `1000 LP` tokens, and transfers his principal + fee rewards to Bob.
 
 ---
 
