@@ -24,7 +24,7 @@
     - [3.2 ConditionalTokens.sol (ERC-1155 Global Ledger)](#32-conditionaltokenssol-erc-1155-global-ledger)
     - [3.3 LMSRMarketMakerFactory.sol (EIP-1167 Proxy Factory)](#33-lmsrmarketmakerfactorysol-eip-1167-proxy-factory)
     - [3.4 LMSRMarketMaker.sol (AMM Liquidity Pool)](#34-lmsrmarketmakersol-amm-liquidity-pool)
-    - [3.5 AdminOracle.sol (Admin Resolution Contract)](#35-adminoraclesol-admin-resolution-contract)
+    - [3.5 Direct Admin Wallet (Oracle Role)](#35-direct-admin-wallet-oracle-role)
   - [5. Phase 4 — Complete Execution Flow \& Call Chains](#5-phase-4--complete-execution-flow--call-chains)
     - [4.1 Market \& Admin Question Initialization](#41-market--admin-question-initialization)
     - [4.2 Pool Deployment \& Seeding (LMSR Initialization)](#42-pool-deployment--seeding-lmsr-initialization)
@@ -66,7 +66,7 @@ This document serves as the authoritative, end-to-end technical blueprint for th
 5. **Slippage & Limit Protection:**
    - Every trade execution MUST accept a `collateralLimit` parameter to protect users against price front-running and excess slippage.
 6. **Direct Admin Resolution:**
-   - Outcomes MUST be resolved exclusively by the Recrd Admin / Operator (via `AdminOracle` or direct `reportPayouts` call).
+   - Outcomes MUST be resolved exclusively by the Recrd Admin / Operator via direct `reportPayouts` call on `ConditionalTokens`.
    - Outcome resolution MUST trigger automated payout vector reporting (`[1, 0]` for YES or `[0, 1]` for NO) on `ConditionalTokens`.
 7. **Settlement & Redemption:**
    - Upon market resolution, winning token holders MUST be able to burn their ERC-1155 outcome tokens and redeem `FKToken` collateral at a 1:1 payout ratio.
@@ -173,7 +173,7 @@ graph TD
     Pool -->|Interacts with| CTF[ConditionalTokens ERC-1155]
     Pool -->|Transfers| FK[FKToken ERC-20]
     Pool -->|Uses| Math[Fixed192x64Math]
-    Admin[AdminOracle / Operator] -->|Resolves Payouts| CTF
+    Admin[Recrd Admin Wallet] -->|Resolves Payouts| CTF
     User[Trader / User] -->|Trades on| Pool
     User -->|Redeems Winnings on| CTF
 ```
@@ -192,8 +192,8 @@ graph TD
 4. **`LMSRMarketMaker.sol`:**
    - Isolated market maker for a specific video condition.
    - Executes logarithmic cost calculations, handles buy/sell transactions, manages inventory, and enforces slippage limits.
-5. **`AdminOracle.sol`:**
-   - Lightweight contract owned by Recrd Admin to manage video question IDs and report final payout vectors (`[1, 0]` or `[0, 1]`) directly to `ConditionalTokens`.
+5. **Recrd Admin Wallet (Oracle):**
+   - Address designated as the `oracle` in `ConditionalTokens.prepareCondition()`. It holds exclusive permissions to call `reportPayouts` to conclude the market outcomes directly.
 
 ### 2.4 Storage & Data Flow Architecture
 
@@ -219,7 +219,7 @@ graph TD
 ### 2.5 Contract Ownership & Permission Model
 - **`LMSRMarketMakerFactory`:** Owned by Recrd Governance Multisig. Can update fee recipient.
 - **`LMSRMarketMaker`:** Immutable clone after initialization. Operates autonomously; has no admin backdoors that allow draining collateral.
-- **`AdminOracle`:** Owned strictly by Recrd Admin wallet / backend signer.
+- **Recrd Admin:** The Oracle role on `ConditionalTokens` is a designated EOA wallet address or Gnosis Safe multisig controlled by Recrd.
 
 ---
 
@@ -266,24 +266,21 @@ graph TD
   - `calcNetCost(int256[] outcomeTokenAmounts) public view returns (int256 netCost)`: Calculates cost difference.
   - `calcMarginalPrice(uint8 outcomeIndex) public view returns (uint256 price)`: Returns spot price.
 
-### 3.5 AdminOracle.sol (Admin Resolution Contract)
-- **Purpose:** Secure admin wrapper for preparing conditions and reporting final market outcomes directly to `ConditionalTokens`.
-- **State Variables:**
-  - `address public admin`: The authorized Recrd administrator wallet.
-  - `ConditionalTokens public ctf`: Reference to `ConditionalTokens`.
-- **Key Functions:**
-  - `prepareQuestion(bytes32 questionId)`: Calls `ctf.prepareCondition(address(this), questionId, 2)`.
-  - `resolveMarket(bytes32 questionId, uint256[] payouts)`: Calls `ctf.reportPayouts(questionId, payouts)` (`onlyAdmin`).
+### 3.5 Direct Admin Wallet (Oracle Role)
+- **Purpose:** Directly calls `ConditionalTokens` to initialize markets and conclude outcomes, avoiding contract proxy overhead.
+- **Responsibilities:**
+  - Prepares conditions directly on `ConditionalTokens` by calling `prepareCondition()`, specifying the Admin's address as the authorized `oracle`.
+  - Reports final payout vectors (`[1, 0]` or `[0, 1]`) to `ConditionalTokens` using the `reportPayouts` function.
 
 ---
 
 ## 5. Phase 4 — Complete Execution Flow & Call Chains
 
 ### 4.1 Market & Admin Question Initialization
-1. Recrd Backend calls `AdminOracle.prepareQuestion(questionId)`.
-2. `AdminOracle` calls `ConditionalTokens.prepareCondition(address(AdminOracle), questionId, 2)`.
-3. `ConditionalTokens` computes `conditionId = keccak256(abi.encodePacked(address(AdminOracle), questionId, 2))`.
-4. Storage Update: `ConditionalTokens.payoutNumerators[conditionId]` initialized with length 2.
+1. Recrd Admin Wallet calls `ConditionalTokens.prepareCondition(adminAddress, questionId, 2)`.
+
+2. `ConditionalTokens` computes `conditionId = keccak256(abi.encodePacked(adminAddress, questionId, 2))`.
+3. Storage Update: `ConditionalTokens.payoutNumerators[conditionId]` initialized with length 2.
 
 ### 4.2 Pool Deployment & Seeding (LMSR Initialization)
 1. Recrd Backend approves `LMSRMarketMakerFactory` for `1000 FKToken`.
@@ -322,13 +319,11 @@ graph TD
 ## 6. Phase 5 — Contract Integration Map
 
 ```text
-[Recrd Admin / Backend]
+[Recrd Admin Wallet]
        │
-       ├──(1) prepareQuestion() ──> [AdminOracle]
-       │                                 │
-       │                                 └──(2) prepareCondition() ──> [ConditionalTokens]
-       │                                                                   │
-       │                                                                   └── [Storage Update: payoutNumerators]
+       ├──(1) prepareCondition(adminAddress, questionId, 2) ──> [ConditionalTokens]
+       │                                                             │
+       │                                                             └── [Storage Update: payoutNumerators]
        │
        ├──(3) createLMSRMarketMaker() ──> [LMSRMarketMakerFactory]
                                                  │
@@ -343,11 +338,9 @@ graph TD
        │          ├──(8) splitPosition() ──────────────> [ConditionalTokens]
        │          └──(9) safeTransferFrom(Pool -> Alice) [ERC-1155 YES Tokens]
        │
-[Recrd Admin]
+[Recrd Admin Wallet]
        │
-       └──(10) resolveMarket(questionId, [1, 0]) ──> [AdminOracle]
-                                                          │
-                                                          └──(11) reportPayouts() ──> [ConditionalTokens]
+       └──(10) reportPayouts(questionId, [1, 0]) ──> [ConditionalTokens]
                                                                                             │
 [Trader Alice]                                                                              │
        │                                                                                    │
@@ -381,7 +374,7 @@ $$\text{Max Loss} = b \cdot \ln(2) \approx 0.693147 \cdot b$$
 
 - **Milestone 1:** `FKToken.sol`, `ConditionalTokens.sol`, `Fixed192x64Math.sol`.
 - **Milestone 2:** `LMSRMarketMaker.sol`, `LMSRMarketMakerFactory.sol`.
-- **Milestone 3:** `AdminOracle.sol`.
+- **Milestone 3:** Direct Integration & Admin Scripts (no adapter contract needed).
 - **Milestone 4:** Sepolia Deployment & E2E Verification.
 
 ---
