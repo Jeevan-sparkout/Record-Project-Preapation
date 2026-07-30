@@ -1,0 +1,8 @@
+forge-std/=lib/forge-std/src/
+solmate/=lib/solmate/src/
+@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
+@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/
+openzeppelin-solidity/=node_modules/openzeppelin-solidity/
+@gnosis.pm/util-contracts/=node_modules/@gnosis.pm/util-contracts/
+@gnosis.pm/conditional-tokens-contracts/=node_modules/@gnosis.pm/conditional-tokens-contracts/
+Recrd/=Recrd/
