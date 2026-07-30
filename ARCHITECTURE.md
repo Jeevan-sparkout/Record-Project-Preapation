@@ -270,9 +270,8 @@ graph TD
   - `trade(int256[] outcomeTokenAmounts, int256 collateralLimit)`: Executes buy/sell trade.
   - `calcNetCost(int256[] outcomeTokenAmounts) public view returns (int256 netCost)`: Calculates cost difference.
   - `calcMarginalPrice(uint8 outcomeIndex) public view returns (uint256 price)`: Returns spot price.
-  - `depositLiquidity(uint256 collateralAmount)`: Pulls collateral from staker, mints LP tokens 1:1.
-  - `withdrawLiquidity(uint256 lpTokenAmount)`: Burns LP tokens, returns collateral + share of collected fee rewards.
-  - `allocateDelegatedLiquidity(uint256 amount)`: Admin-only. Moves collateral from staking pool to active trading reserves (scales $b$).
+  - `depositLiquidity(uint256 collateralAmount)`: Pulls collateral from staker, mints LP tokens 1:1, and instantly auto-allocates collateral into active trading reserves (expanding $b$ depth immediately and splitting positions on ConditionalTokens).
+  - `withdrawLiquidity(uint256 lpTokenAmount)`: Burns LP tokens, merges inventory positions on ConditionalTokens to release collateral, and returns collateral + share of collected fee rewards.
   - `setFeeRewardDistribution(uint64 ratio)`: Admin-only. Configures fee sharing ratio.
 
 ### 3.5 Direct Admin Wallet (Oracle Role)
@@ -325,12 +324,11 @@ graph TD
 ### 4.6 User Delegated Liquidity Provision & Reward Distribution Flow
 1. Bob (Staker) approves `LMSRMarketMaker` to spend `1000 FKToken`.
 2. Bob calls `LMSRMarketMaker.depositLiquidity(1000 * 10^18)`.
-3. `LMSRMarketMaker` transfers `1000 FKToken` from Bob to its staking balance and mints `1000 LP` tokens to Bob.
-4. Recrd Admin calls `LMSRMarketMaker.allocateDelegatedLiquidity(500 * 10^18)` to move `500 FKToken` into the active trading reserves (increasing $b$ parameter depth).
-5. As trades occur, a fee (e.g., 2%) is collected and added to `poolFeeCollected`.
-6. Recrd Admin sets LP share: `LMSRMarketMaker.setFeeRewardDistribution(80 * 10^16)` (80% fee rewards to LPs, 20% to protocol).
-7. Bob calls `LMSRMarketMaker.withdrawLiquidity(1000 * 10^18)`.
-8. `LMSRMarketMaker` calculates Bob's share of `poolFeeCollected` based on his LP share, burns `1000 LP` tokens, and transfers his principal + fee rewards to Bob.
+3. `LMSRMarketMaker` transfers `1000 FKToken` from Bob to the contract, mints `1000 LP` tokens to Bob, and **instantly auto-allocates** the `1000 FKToken` to active trading reserves (increasing $b$ parameter depth and splitting positions on `ConditionalTokens` immediately).
+4. As trades occur, a fee (e.g., 2%) is collected and added to `poolFeeCollected`.
+5. Recrd Admin sets LP share: `LMSRMarketMaker.setFeeRewardDistribution(80 * 10^16)` (80% fee rewards to LPs, 20% to protocol).
+6. Bob calls `LMSRMarketMaker.withdrawLiquidity(1000 * 10^18)`.
+7. `LMSRMarketMaker` calculates Bob's share of `poolFeeCollected`, merges inventory on `ConditionalTokens` to release escrowed collateral, burns `1000 LP` tokens, and transfers his principal + fee rewards to Bob.
 
 ---
 

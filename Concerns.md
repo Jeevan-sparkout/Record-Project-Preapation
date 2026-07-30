@@ -29,19 +29,18 @@ While integrating user staking directly into the LMSR market maker provides sign
 
 ---
 
-### ⚠️ Concern 2: LP Withdrawal Lock-up & "Bank Run" Race Condition
+### ⚠️ Concern 2: LP Withdrawal Liquidity Availability & Automated Inventory Unwinding
 
 - **Context & Mechanics:**
-  Suppose stakers deposit $10,000\text{ FKT}$, and the Admin allocates $8,000\text{ FKT}$ into `activeTradingLiquidity` ($b$ parameter). 
-  That $8,000\text{ FKT}$ is immediately converted into active outcome shares (`[8000 YES, 8000 NO]`) and locked inside `ConditionalTokens` escrow. Only $2,000\text{ FKT}$ remains as liquid, unallocated `FKToken` in the pool.
-  If an LP calls `withdrawLiquidity(5000 FKT)` during active trading, the pool only holds $2,000\text{ FKT}$ of liquid cash, while $8,000\text{ FKT}$ is locked in active inventory.
+  Under the instant auto-allocation flow, when users deposit collateral (`depositLiquidity`), 100% of the collateral is immediately split into outcome tokens (`[YES, NO]`) and locked in `ConditionalTokens` escrow to expand $b$ liquidity depth instantly.
+  When an LP calls `withdrawLiquidity(lpTokenAmount)` during active trading, the contract must return `FKToken` collateral.
 
 - **Impact on System:**
-  The LP's withdrawal transaction will **revert** due to `InsufficientLiquidCollateral`. If multiple LPs attempt to withdraw simultaneously, a "bank run" occurs where the first withdrawer takes all liquid cash, leaving remaining LPs unable to withdraw until market settlement.
+  If the contract only attempted to transfer raw `FKToken` without unwinding inventory, the transaction would revert because collateral is held in escrow as ERC-1155 outcome tokens.
 
 - **Architectural Mitigation:**
-  1. **Controlled De-allocation Function:** Implement an admin function `deallocateDelegatedLiquidity(amount)` that unwinds active inventory via `ConditionalTokens.mergePositions()` to convert outcome shares back into liquid `FKToken` before LP withdrawals.
-  2. **Post-Resolution / Unbonding Window:** Enforce a short unbonding delay or restrict full LP principal redemptions until post-market outcome resolution when all inventory is liquidated.
+  1. **Automated `mergePositions()` on Withdrawal:** The `withdrawLiquidity()` function automatically calls `ConditionalTokens.mergePositions()` to burn matching YES/NO pairs from the pool's inventory, instantly releasing raw `FKToken` from escrow back to the staker in a single atomic transaction.
+  2. **Proportional $b$ Scaling:** As LP tokens are burned during withdrawal, active trading liquidity $b$ decreases proportionally ($b_{\text{new}} = b_{\text{old}} - \text{withdrawnCollateral}$), maintaining exact pool accounting.
 
 ---
 
