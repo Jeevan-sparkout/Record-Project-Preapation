@@ -470,7 +470,8 @@ uint256 public poolFeeCollected;    // Total accumulated trading fees
    - Transfers bought ERC-1155 outcome tokens to user or receives sold outcome tokens from user.
 6. `depositLiquidity(uint256 collateralAmount)`: Allows users to stake `FKToken`. Pulls collateral, mints LP tokens 1:1 to staker (`totalLPTokenSupply += amount`, `lpTokenBalanceOf[msg.sender] += amount`), approves `ConditionalTokens`, calls `splitPosition()` to escrow collateral, and **instantly auto-allocates** it to `activeTradingLiquidity` ($b += \text{collateralAmount}$).
 7. `withdrawLiquidity(uint256 lpTokenAmount)`: Allows stakers to burn LP tokens, automatically calls `mergePositions()` on `ConditionalTokens` to release escrowed collateral, and returns original collateral + share of `poolFeeCollected` based on `lpRewardRatio`.
-8. `setFeeRewardDistribution(uint64 ratio)`: Admin-only (`onlyOwner`). Configures fee sharing ratio between LPs and protocol.
+8. `claimFeeReward()`: Allows stakers to harvest their accumulated fee rewards standalone without unstaking principal.
+9. `setFeeRewardDistribution(uint64 ratio)`: Admin-only (`onlyOwner`). Configures fee sharing ratio once (permanently locked after setting to protect LPs).
 
 #### 7. Internal Helper Functions Required
 - `_getB() internal view returns (int256)`: Returns active liquidity $b$ in 192.64 fixed-point format.
@@ -480,6 +481,7 @@ uint256 public poolFeeCollected;    // Total accumulated trading fees
   - `AMMTrade(address indexed transactor, int256[] outcomeTokenAmounts, int256 netCost, uint256 feeAmount)`
   - `LiquidityDeposited(address indexed staker, uint256 amount, uint256 lpTokensMinted)`
   - `LiquidityWithdrawn(address indexed staker, uint256 lpTokensBurned, uint256 collateralReturned, uint256 feeRewardPaid)`
+  - `FeeRewardClaimed(address indexed staker, uint256 amountClaimed)`
 - Modifiers:
   - `onlyOwner`
   - `nonReentrant`
@@ -487,36 +489,40 @@ uint256 public poolFeeCollected;    // Total accumulated trading fees
   - `SlippageLimitExceeded()`
   - `AlreadyInitialized()`
   - `InsufficientLPBalance()`
+  - `FeeRatioAlreadySet()`
 
 #### 9. External Contract Integrations
 - `ConditionalTokens`: Calls `splitPosition()` and `mergePositions()`.
 - `FKToken`: Calls `transferFrom()` and `transfer()`.
+- `Whitelist`: Checks `whitelist.isWhitelisted(user)` for permissioned participation.
 
 #### 10. Initialization Requirements
 Must be called via `initialize()` once per clone instance. Must prevent re-initialization.
 
 #### 11. Access Control Requirements
-- `setFeeRewardDistribution()` MUST be restricted to `onlyOwner`.
+- `setFeeRewardDistribution()` MUST be restricted to `onlyOwner` and executable only once (`!isLPRatioSet`).
 
 #### 12. Mathematical Formulas & Business Logic
 $$C(q) = b \cdot \ln \left( \sum_{i=1}^N \exp\left(\frac{q_i}{b}\right) \right)$$
 $$\Delta C = C(q_{\text{new}}) - C(q_{\text{old}})$$
-$$\text{Fee Amount} = \frac{\Delta C \cdot \text{fee}}{10^{18}}$$
+$$\text{Fee Amount (Buy & Sell)} = \frac{|\Delta C| \cdot \text{fee}}{10^{18}}$$
 $$\text{Max Loss Cap} = b \cdot \ln(2)$$
 $$\text{Staker Fee Share} = \frac{\text{lpTokenAmount}}{\text{totalLPTokenSupply}} \cdot \left( \frac{\text{poolFeeCollected} \cdot \text{lpRewardRatio}}{10^{18}} \right)$$
 
 #### 13. State Changes
-- `trade()` updates `netOutcomeTokensSold`, `poolFeeCollected`, and inventory token balances.
+- `trade()` updates `netOutcomeTokensSold`, `poolFeeCollected` (on buy & sell), and inventory token balances.
 - `depositLiquidity()` updates `totalLPTokenSupply`, `lpTokenBalanceOf`, and increases `activeTradingLiquidity` ($b$) instantly.
 - `withdrawLiquidity()` decreases `totalLPTokenSupply`, `lpTokenBalanceOf`, and decreases `activeTradingLiquidity` ($b$) proportionally.
+- `claimFeeReward()` updates staker's claimed fee balance tracking.
 
 #### 14. Edge Cases to Handle
 - Trade cost exceeding user's `collateralLimit` must revert with `SlippageLimitExceeded()`.
 - Insufficient raw `FKToken` balance in pool during a sell trade must trigger automated `mergePositions()` on `ConditionalTokens` to release escrowed collateral before completing user payout.
+- Attempting to call `setFeeRewardDistribution()` a second time must revert with `FeeRatioAlreadySet()`.
 - Zero liquidity deposit (`amount == 0`) must revert.
 
 #### 15. Security Considerations
-- Enforce `nonReentrant` modifier on `trade()`, `depositLiquidity()`, and `withdrawLiquidity()`.
+- Enforce `nonReentrant` modifier on `trade()`, `depositLiquidity()`, `withdrawLiquidity()`, and `claimFeeReward()`.
 - Ensure $b > 0$ at all times to avoid division-by-zero in LMSR cost formula.
 
 #### 16. Testing Goals
@@ -524,19 +530,20 @@ $$\text{Staker Fee Share} = \frac{\text{lpTokenAmount}}{\text{totalLPTokenSupply
 - Verify price increases as YES tokens are bought.
 - Verify sell trades lower outcome price and pay out collateral.
 - Verify user staking mints LP tokens 1:1 and instantly auto-allocates to active $b$ liquidity.
-- Verify fee collection and proportional LP reward withdrawal.
+- Verify fee collection on both buy & sell trades and standalone `claimFeeReward()`.
 
 #### 17. Step-by-Step Checklist
 - [ ] Step 3.1: Create `Recrd/LMSRMarketMaker.sol` skeleton inheriting `ERC1155Holder`.
 - [ ] Step 3.2: Define packed storage layout.
 - [ ] Step 3.3: Implement `constructor()` and `initialize()` functions.
 - [ ] Step 3.4: Implement `calcNetCost()` and `calcMarginalPrice()` view functions.
-- [ ] Step 3.5: Implement core `trade()` function with buy/sell routing logic.
+- [ ] Step 3.5: Implement core `trade()` function with buy/sell routing logic (charging fees on buy & sell).
 - [ ] Step 3.6: Integrate automated `mergePositions()` fallback for sell trades.
 - [ ] Step 3.7: Implement `depositLiquidity()` (with instant $b$ auto-allocation) and `withdrawLiquidity()` staking functions.
-- [ ] Step 3.8: Implement `setFeeRewardDistribution()` admin fee configuration.
-- [ ] Step 3.9: Write comprehensive Foundry tests in `src/test/LMSRMarketMaker.t.sol`.
-- [ ] Step 3.10: Verify 100% passing tests for buying, selling, staking, and fee rewards.
+- [ ] Step 3.8: Implement `claimFeeReward()` standalone harvesting function.
+- [ ] Step 3.9: Implement `setFeeRewardDistribution()` admin fee configuration (locking ratio permanently).
+- [ ] Step 3.10: Write comprehensive Foundry tests in `src/test/LMSRMarketMaker.t.sol`.
+- [ ] Step 3.11: Verify 100% passing tests for buying, selling, staking, fee claims, and immutable reward ratios.
 
 #### 18. Definition of Done (DoD)
 - `LMSRMarketMaker.sol` compiles cleanly and passes all trade, pricing, and staking unit tests.

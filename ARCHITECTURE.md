@@ -264,15 +264,18 @@ graph TD
   - `mapping(address => uint256) public lpTokenBalanceOf`: LP token ledger of stakers.
   - `uint256 public activeTradingLiquidity`: Collateral currently utilized in LMSR active reserves.
   - `uint256 public poolFeeCollected`: Accumulated transaction fees.
-  - `uint64 public lpRewardRatio`: Percentage of fees distributed to LPs vs. protocol.
+  - `uint64 public lpRewardRatio`: Percentage of fees distributed to LPs vs. protocol (Immutable once configured).
+  - `bool public isLPRatioSet`: Flag tracking if `lpRewardRatio` has been locked.
+  - `Whitelist public whitelist`: Reference to Whitelist contract for access control.
 - **Key Functions:**
-  - `initialize(...)`: Sets clone parameters and mints initial inventory ($b$).
-  - `trade(int256[] outcomeTokenAmounts, int256 collateralLimit)`: Executes buy/sell trade.
+  - `initialize(...)`: Sets clone parameters, whitelist reference, and mints initial inventory ($b$).
+  - `trade(int256[] outcomeTokenAmounts, int256 collateralLimit)`: Executes buy/sell trade (Fees charged on both buy and sell trades).
   - `calcNetCost(int256[] outcomeTokenAmounts) public view returns (int256 netCost)`: Calculates cost difference.
   - `calcMarginalPrice(uint8 outcomeIndex) public view returns (uint256 price)`: Returns spot price.
-  - `depositLiquidity(uint256 collateralAmount)`: Pulls collateral from staker, mints LP tokens 1:1, and instantly auto-allocates collateral into active trading reserves (expanding $b$ depth immediately and splitting positions on ConditionalTokens).
-  - `withdrawLiquidity(uint256 lpTokenAmount)`: Burns LP tokens, merges inventory positions on ConditionalTokens to release collateral, and returns collateral + share of collected fee rewards.
-  - `setFeeRewardDistribution(uint64 ratio)`: Admin-only. Configures fee sharing ratio.
+  - `depositLiquidity(uint256 collateralAmount)`: Pulls collateral from staker, mints LP tokens 1:1, and instantly auto-allocates collateral to active reserves (expanding $b$ depth immediately mid-market).
+  - `withdrawLiquidity(uint256 lpTokenAmount)`: Burns LP tokens, merges inventory positions on ConditionalTokens to release collateral, and returns principal collateral + fee rewards.
+  - `claimFeeReward()`: Standalone function allowing LPs to harvest accrued fee rewards without unstaking principal.
+  - `setFeeRewardDistribution(uint64 ratio)`: Admin-only. Configures fee sharing ratio once (permanently locked after setting to protect LPs).
 
 ### 3.5 Direct Admin Wallet (Oracle Role)
 - **Purpose:** Directly calls `ConditionalTokens` to initialize markets and conclude outcomes, avoiding contract proxy overhead.
