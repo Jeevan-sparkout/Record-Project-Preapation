@@ -707,9 +707,8 @@ Requires full deployment stack from Phase 5.
 #### 3. End-to-End Test Workflow (`src/test/E2EIntegration.t.sol`)
 1. **Admin Market Creation:** Admin calls `prepareCondition()` for a video question.
 2. **Factory Market Deployment:** Admin seeds market via `createLMSRMarketMaker()`.
-3. **User Staking:** User Bob deposits 500 FKT collateral into pool via `depositLiquidity()`.
-4. **Admin Allocation:** Admin allocates delegated liquidity to scale $b$ depth.
-5. **User Trading:** Trader Alice buys 200 YES shares via `trade()`. Spot price increases.
+3. **User Staking (Instant Auto-Allocation):** User Bob deposits 500 FKT collateral into pool via `depositLiquidity()`, instantly expanding $b$ liquidity depth without requiring manual admin allocation.
+4. **User Trading:** Trader Alice buys 200 YES shares via `trade()`. Spot price increases.
 6. **Profit Taking:** Trader Alice sells 100 YES shares back to pool via `trade()`.
 7. **Market Resolution:** Admin calls `reportPayouts([1, 0])` (YES wins).
 8. **User Redemption:** Trader Alice redeems remaining 100 YES shares for 100 FKT on `ConditionalTokens`.
