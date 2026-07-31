@@ -272,17 +272,20 @@ graph TD
   - `mapping(address => uint256) public lpTokenBalanceOf`: LP token ledger of stakers.
   - `uint256 public activeTradingLiquidity`: Collateral currently utilized in LMSR active reserves.
   - `uint256 public poolFeeCollected`: Accumulated transaction fees.
+  - `uint256 public accFeePerShare`: Global accumulated LP fee reward per LP token (scaled by $10^{18}$).
+  - `mapping(address => uint256) public userFeePerSharePaid`: Per-user snapshot of `accFeePerShare`.
+  - `mapping(address => uint256) public feeRewardsClaimed`: Total fee rewards claimed by each staker.
   - `uint64 public lpRewardRatio`: Percentage of fees distributed to LPs vs. protocol (Immutable once configured).
   - `bool public isLPRatioSet`: Flag tracking if `lpRewardRatio` has been locked.
   - `Whitelist public whitelist`: Reference to Whitelist contract for access control.
 - **Key Functions:**
   - `initialize(...)`: Sets clone parameters, whitelist reference, and mints initial inventory ($b$).
-  - `trade(int256[] outcomeTokenAmounts, int256 collateralLimit)`: Executes buy/sell trade (Fees charged on both buy and sell trades).
+  - `trade(int256[] outcomeTokenAmounts, int256 collateralLimit)`: Executes buy/sell trade (Fees charged on both buy and sell trades; updates `accFeePerShare`).
   - `calcNetCost(int256[] outcomeTokenAmounts) public view returns (int256 netCost)`: Calculates cost difference.
   - `calcMarginalPrice(uint8 outcomeIndex) public view returns (uint256 price)`: Returns spot price.
-  - `depositLiquidity(uint256 collateralAmount)`: Pulls collateral from staker, mints LP tokens 1:1, and instantly auto-allocates collateral to active reserves (expanding $b$ depth immediately mid-market).
-  - `withdrawLiquidity(uint256 lpTokenAmount)`: Burns LP tokens, merges inventory positions on ConditionalTokens to release collateral, and returns principal collateral + fee rewards.
-  - `claimFeeReward()`: Standalone function allowing LPs to harvest accrued fee rewards without unstaking principal.
+  - `depositLiquidity(uint256 collateralAmount)`: Pulls collateral from staker, harvests pending rewards, mints LP tokens 1:1, and instantly auto-allocates collateral to active reserves (expanding $b$ depth immediately mid-market).
+  - `withdrawLiquidity(uint256 lpTokenAmount)`: Harvests pending rewards, burns LP tokens, merges inventory positions on ConditionalTokens to release collateral, and returns principal collateral.
+  - `claimFeeReward()`: Standalone function allowing LPs to harvest accrued fee rewards (`pending = lpTokenBalance * (accFeePerShare - userFeePerSharePaid) / 1e18`) without unstaking principal.
   - `setFeeRewardDistribution(uint64 ratio)`: Admin-only. Configures fee sharing ratio once (permanently locked after setting to protect LPs).
 
 ### 3.5 Direct Admin Wallet (Oracle Role)

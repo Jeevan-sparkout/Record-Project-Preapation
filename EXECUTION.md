@@ -447,6 +447,15 @@ uint256 public activeTradingLiquidity; // Active trading reserve funding (b para
 
 // Slot 9
 uint256 public poolFeeCollected;    // Total accumulated trading fees
+
+// Slot 10
+uint256 public accFeePerShare;      // Global accumulated LP fee reward per LP token (scaled by 1e18)
+
+// Slot 11
+mapping(address => uint256) public userFeePerSharePaid; // User fee accumulator snapshot
+
+// Slot 12
+mapping(address => uint256) public feeRewardsClaimed;   // Total fee rewards claimed per staker
 ```
 
 #### 5. Interfaces & Dependencies Required
@@ -462,15 +471,32 @@ uint256 public poolFeeCollected;    // Total accumulated trading fees
 4. `calcMarginalPrice(uint8 outcomeIndex) public view returns (uint256 price)`: Computes current spot price $P(\text{outcome}) = \frac{\exp(q_i / b)}{\sum \exp(q_j / b)}$.
 5. `trade(int256[] outcomeTokenAmounts, int256 collateralLimit)`: Executes buy or sell trade.
    - Calculates `netCost = calcNetCost(outcomeTokenAmounts)`.
-   - Computes trading fee `feeAmount = (netCost > 0) ? (netCost * fee) / 10^18 : 0`.
+   - Computes trading fee `feeAmount = (|netCost| * fee) / 10^18`.
+   - Updates `poolFeeCollected += feeAmount`.
+   - Updates LP fee accumulator: `if (totalLPTokenSupply > 0) accFeePerShare += (feeAmount * lpRewardRatio) / totalLPTokenSupply`.
    - Enforces `collateralLimit` slippage constraint.
    - Updates `netOutcomeTokensSold`.
    - Pulls `FKToken` from user or pays `FKToken` to user.
    - Interacts with `ConditionalTokens.splitPosition` or `mergePositions` to keep inventory balanced.
    - Transfers bought ERC-1155 outcome tokens to user or receives sold outcome tokens from user.
-6. `depositLiquidity(uint256 collateralAmount)`: Allows users to stake `FKToken`. Pulls collateral, mints LP tokens 1:1 to staker (`totalLPTokenSupply += amount`, `lpTokenBalanceOf[msg.sender] += amount`), approves `ConditionalTokens`, calls `splitPosition()` to escrow collateral, and **instantly auto-allocates** it to `activeTradingLiquidity` ($b += \text{collateralAmount}$).
-7. `withdrawLiquidity(uint256 lpTokenAmount)`: Allows stakers to burn LP tokens, automatically calls `mergePositions()` on `ConditionalTokens` to release escrowed collateral, and returns original collateral + share of `poolFeeCollected` based on `lpRewardRatio`.
-8. `claimFeeReward()`: Allows stakers to harvest their accumulated fee rewards standalone without unstaking principal.
+6. `depositLiquidity(uint256 collateralAmount)`: Allows users to stake `FKToken`.
+   - First harvests any pending fee rewards for `msg.sender` before updating LP balance.
+   - Pulls collateral, mints LP tokens 1:1 to staker (`totalLPTokenSupply += amount`, `lpTokenBalanceOf[msg.sender] += amount`).
+   - Updates `userFeePerSharePaid[msg.sender] = accFeePerShare`.
+   - Approves `ConditionalTokens`, calls `splitPosition()` to escrow collateral, and **instantly auto-allocates** it to `activeTradingLiquidity` ($b += \text{collateralAmount}$).
+7. `withdrawLiquidity(uint256 lpTokenAmount)`: Allows stakers to burn LP tokens.
+   - First harvests any pending fee rewards for `msg.sender`.
+   - Burns LP tokens (`totalLPTokenSupply -= lpTokenAmount`, `lpTokenBalanceOf[msg.sender] -= lpTokenAmount`).
+   - Automatically calls `mergePositions()` on `ConditionalTokens` to release escrowed collateral.
+   - Updates `userFeePerSharePaid[msg.sender] = accFeePerShare`.
+   - Transfers returned collateral to staker.
+8. `claimFeeReward()`: Allows stakers to harvest their accumulated fee rewards standalone without unstaking principal:
+   - Computes `pending = (lpTokenBalanceOf[msg.sender] * (accFeePerShare - userFeePerSharePaid[msg.sender])) / 1e18`.
+   - Requires `pending > 0`.
+   - Updates `userFeePerSharePaid[msg.sender] = accFeePerShare`.
+   - Updates `feeRewardsClaimed[msg.sender] += pending`.
+   - Transfers `pending` collateral token to `msg.sender`.
+   - Emits `FeeRewardClaimed(msg.sender, pending)`.
 9. `setFeeRewardDistribution(uint64 ratio)`: Admin-only (`onlyOwner`). Configures fee sharing ratio once (permanently locked after setting to protect LPs).
 
 #### 7. Internal Helper Functions Required
