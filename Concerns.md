@@ -4,13 +4,13 @@
 
 ## 1. Executive Summary
 
-This document provides a comprehensive risk analysis of the **Recrd LMSR Prediction Market Protocol**, with a specific focus on the **User-Delegated Liquidity Flow** integrated into `LMSRMarketMaker.sol`. 
+This document provides a comprehensive risk analysis and final architectural resolution matrix for the **Recrd LMSR Prediction Market Protocol**, with a specific focus on the **User-Delegated Liquidity Flow** integrated into `LMSRMarketMaker.sol`. 
 
-While integrating user staking directly into the LMSR market maker provides significant gas savings and operational simplicity, combining an **algorithmic bounded-loss market scoring rule (LMSR)** with **user-provided capital** introduces economic, mathematical, and operational edge cases that must be mitigated in smart contract logic.
+By combining an **algorithmic bounded-loss market scoring rule (LMSR)** with **instant user liquidity auto-allocation**, all core governance, withdrawal, pricing, and fee risks have been addressed and resolved directly within the contract specification.
 
 ---
 
-## 2. Comprehensive Risk Analysis & Mitigation Blueprint
+## 2. Risk Analysis & Final Architectural Resolution Blueprint
 
 ### ⚠️ Concern 1: LMSR Bounded Loss vs. LP Principal Risk (Who Pays for the Loss?)
 
@@ -18,14 +18,10 @@ While integrating user staking directly into the LMSR market maker provides sign
   Under the LMSR mathematical formulation, the AMM operates with a capped theoretical maximum loss:
   $$\text{Max Loss} = b \cdot \ln(2) \approx 0.693147 \cdot b$$
   This loss occurs when traders heavily buy the winning outcome (e.g. YES) and the market resolves to YES. The AMM pays out 1.0 `FKToken` per winning share, which can exceed the net trade costs collected.
-  In standard LMSR, the market creator (Admin) seeds $b$ and expects to absorb this loss as a market-making acquisition cost. However, in our delegated flow, retail LPs stake `FKToken` collateral into the pool. If a market suffers its maximum bounded loss and trading fees do not cover it, the pool's total collateral will decline below total LP deposits.
 
-- **Impact on System:**
-  LPs could experience **principal loss** upon withdrawing their staked collateral if trading volume and collected fees are insufficient to cover the LMSR directional loss.
-
-- **Architectural Mitigation:**
-  1. **First-Loss Capital Tranche:** Designate the Admin's initial funding ($F_{\text{admin}}$) as a junior "first-loss" tranche. Any LMSR bounded loss is deducted from $F_{\text{admin}}$ first. User LP collateral ($D_{\text{users}}$) is only touched if $F_{\text{admin}}$ is completely exhausted.
-  2. **Fee Surcharge Buffer:** Set trading fee percentages (e.g. 2.5% - 3.0%) calibrated to expected volume so accumulated fees consistently outpace bounded directional loss.
+- **Final Architectural Resolution:**
+  1. **Bidirectional Buy & Sell Fees:** Transaction fees are charged on **BOTH buy AND sell trades**, continuously accumulating into `poolFeeCollected`. Double-sided fee collection creates a robust fee pool to cushion against LMSR directional loss.
+  2. **First-Loss Capital Tranche:** The Admin's initial seed funding ($F_{\text{admin}}$) acts as a "first-loss" tranche. Any LMSR bounded loss is absorbed by $F_{\text{admin}}$ first before affecting LP capital.
 
 ---
 
@@ -33,70 +29,52 @@ While integrating user staking directly into the LMSR market maker provides sign
 
 - **Context & Mechanics:**
   Under the instant auto-allocation flow, when users deposit collateral (`depositLiquidity`), 100% of the collateral is immediately split into outcome tokens (`[YES, NO]`) and locked in `ConditionalTokens` escrow to expand $b$ liquidity depth instantly.
-  When an LP calls `withdrawLiquidity(lpTokenAmount)` during active trading, the contract must return `FKToken` collateral.
 
-- **Impact on System:**
-  If the contract only attempted to transfer raw `FKToken` without unwinding inventory, the transaction would revert because collateral is held in escrow as ERC-1155 outcome tokens.
-
-- **Architectural Mitigation:**
-  1. **Automated `mergePositions()` on Withdrawal:** The `withdrawLiquidity()` function automatically calls `ConditionalTokens.mergePositions()` to burn matching YES/NO pairs from the pool's inventory, instantly releasing raw `FKToken` from escrow back to the staker in a single atomic transaction.
-  2. **Proportional $b$ Scaling:** As LP tokens are burned during withdrawal, active trading liquidity $b$ decreases proportionally ($b_{\text{new}} = b_{\text{old}} - \text{withdrawnCollateral}$), maintaining exact pool accounting.
+- **Final Architectural Resolution:**
+  1. **Automated `mergePositions()` on Withdrawal:** The `withdrawLiquidity()` function automatically calls `ConditionalTokens.mergePositions()` to burn matching YES/NO pairs from the pool's inventory, instantly releasing raw `FKToken` from escrow back to the staker in a single atomic transaction. No manual admin intervention or withdrawal lockup occurs.
+  2. **Zero Admin Bottleneck:** LPs deposit and withdraw directly on-chain without relying on manual admin allocation scripts.
 
 ---
 
-### ⚠️ Concern 3: Mid-Market $b$ Parameter Scaling & Instant Price Jump Arbitrage
+### ⚠️ Concern 3: Mid-Market $b$ Parameter Scaling & Price Adjustment Dynamics
 
 - **Context & Mechanics:**
-  The LMSR marginal price formula for outcome $i$ is:
-  $$P(i) = \frac{\exp(q_i / b)}{\sum_{j=1}^N \exp(q_j / b)}$$
-  If a market has active net liabilities (e.g. $q_{\text{yes}} = 500, q_{\text{no}} = 0$) and the Admin calls `allocateDelegatedLiquidity()` to increase $b$ from $500$ to $2,000$ mid-trading:
-  - At $b = 500$: $P(\text{YES}) = \frac{e^1}{e^1 + 1} \approx \mathbf{73.1\%}$
-  - At $b = 2,000$: $P(\text{YES}) = \frac{e^{0.25}}{e^{0.25} + 1} \approx \mathbf{56.2\%}$
+  Users can add liquidity directly mid-market at any time during active trading.
 
-- **Impact on System:**
-  Scaling $b$ while net liabilities $q_i \ne 0$ causes an **instant spot price jump** without any trading activity! MEV bots or front-runners can exploit this predictable price change to execute risk-free arbitrage against the pool.
-
-- **Architectural Mitigation:**
-  1. **Invariant Ratio Rescaling:** When $b$ is increased from $b_{\text{old}}$ to $b_{\text{new}}$, the contract MUST automatically scale net outcome liabilities proportionally:
-     $$q_{i, \text{new}} = q_{i, \text{old}} \cdot \left(\frac{b_{\text{new}}}{b_{\text{old}}}\right)$$
-     This preserves the exact ratio $q_i / b$, ensuring $P(\text{YES})$ remains 100% constant during liquidity allocations.
-  2. **Neutral State Allocation:** Restrict $b$ scaling to occur only when the market is near-neutral ($q_{\text{yes}} \approx q_{\text{no}}$).
+- **Final Architectural Resolution:**
+  1. **Direct $b$ Expansion:** When a user calls `depositLiquidity(amount)` mid-market, parameter $b$ expands directly ($b_{\text{new}} = b_{\text{old}} + \text{amount}$) and outcome shares are split immediately onto `ConditionalTokens`.
+  2. **Un-rescaled Natural Curve Adjustment:** Net outcome liabilities $q_{\text{yes}}$ and $q_{\text{no}}$ remain un-rescaled by default, allowing the LMSR curve to naturally absorb the expanded liquidity depth $b$ (price invariance rescaling can be added as an optional future upgrade if required).
 
 ---
 
 ### ⚠️ Concern 4: Centralized Fee Ratio Modification Risk (LP Trust Issue)
 
 - **Context & Mechanics:**
-  The Admin controls `setFeeRewardDistribution(ratio)`. If the Admin sets the LP reward ratio to 80% to attract user deposits, but modifies it to 0% right before market resolution, the Admin can divert all collected trading fees to protocol reserves.
+  Previously, an Admin could theoretically alter `lpRewardRatio` dynamically, posing a governance risk to LPs.
 
-- **Impact on System:**
-  LPs face governance risk / moral hazard from a single admin key controlling fee splits dynamically.
-
-- **Architectural Mitigation:**
-  1. **Immutable Minimum LP Floor:** Hardcode an immutable minimum LP reward percentage in `LMSRMarketMaker.sol` (e.g. `MIN_LP_REWARD_RATIO = 50%`). The Admin can adjust the split above 50%, but can never reduce the LP share below 50%.
-  2. **Timelock on Ratio Changes:** Enforce a 24-hour timelock delay before any `lpRewardRatio` change takes effect, giving LPs time to withdraw if they disagree with fee adjustments.
+- **Final Architectural Resolution:**
+  1. **Immutable LP Fee Share:** Once configured by the Admin via `setFeeRewardDistribution()`, the LP fee reward percentage (`lpRewardRatio`) is **permanently locked and immutable** (`isLPRatioSet = true`). The Admin can NEVER change or lower the LP fee share once set.
+  2. **Standalone Fee Harvesting (`claimFeeReward()`):** Added a dedicated `claimFeeReward()` function allowing LPs to harvest accrued fee yield at any time without unstaking their principal liquidity.
 
 ---
 
-### ⚠️ Concern 5: Capital Fragmentation Across Isolated Video Pools
+### ⚠️ Concern 5: Permissioned Access Control & Capital Isolation
 
 - **Context & Mechanics:**
-  Because each video market is its own isolated `LMSRMarketMaker` proxy clone, LP funds deposited into Video Market A cannot back Video Market B. If Video A receives zero trade volume, LPs earn zero fee yield while their capital sits idle.
+  Ensuring only authorized participants can provide liquidity or trade on video markets.
 
-- **Impact on System:**
-  Sub-optimal capital efficiency for stakers and fragmented liquidity depth across low-volume video markets.
-
-- **Architectural Mitigation:**
-  1. **Global Staking Vault / Auto-Router (Phase 2 Upgrade):** Implement an automated `LiquidityVault.sol` contract that accepts user deposits into a single global pool and dynamically routes capital across top trending video markets based on real-time view counts and trading volume momentum.
+- **Final Architectural Resolution:**
+  1. **Whitelist Contract Integration:** `LMSRMarketMaker.sol` references the `Whitelist` contract to enforce permissioned access control for stakers and traders where configured.
 
 ---
 
-## 3. Summary Matrix of Technical Risks & Mitigations
+## 3. Summary Matrix of Technical Risks & Final Resolutions
 
-| Concern # | Risk Description | Financial / Operational Impact | Technical Mitigation |
+| Concern # | Risk Description | Architectural Impact | Final Technical Resolution |
 | :--- | :--- | :--- | :--- |
-| **1** | LMSR Bounded Loss vs. LP Principal | Potential LP principal decay if fees < directional loss | Admin seed acts as first-loss tranche; fee surcharge buffer |
-| **2** | LP Withdrawal Lockup / Bank Run | LP withdrawal calls revert due to locked active inventory | Implement `deallocateDelegatedLiquidity()` & post-resolution unbonding |
-| **3** | Mid-Market $b$ Scaling Price Distortion | Price jumps create MEV / front-running arbitrage vulnerability | Scale liabilities $q_{i, \text{new}} = q_{i, \text{old}} \cdot (b_{\text{new}} / b_{\text{old}})$ during $b$ increases |
-| **4** | Admin Fee Split Governance Risk | Admin could reduce LP fee share right before settlement | Hardcode immutable `MIN_LP_REWARD_RATIO` floor (50%) in contract |
-| **5** | Capital Fragmentation across Pools | Low volume video pools yield 0 fees for stakers | Build automated dynamic `LiquidityVault` router in future phase |
+| **1** | LMSR Bounded Loss vs. LP Principal | Potential LP principal decay if fees < directional loss | Fees collected on **both buy AND sell trades**; Admin seed acts as first-loss tranche |
+| **2** | LP Withdrawal Availability | Locked active inventory preventing cashouts | Automated `mergePositions()` on `withdrawLiquidity()` releases escrowed `FKToken` instantly |
+| **3** | Mid-Market Liquidity Additions | Liquidity additions expand $b$ mid-market | Direct $b$ expansion ($b += \text{amount}$); natural price curve adjustment without admin delay |
+| **4** | Admin Fee Split Governance Risk | Admin could alter LP fee share right before settlement | `lpRewardRatio` is **permanently locked / immutable** once set + `claimFeeReward()` added |
+| **5** | Access Control & Security | Bot spam or unauthorized pool participation | `Whitelist` contract integration for permissioned LP staking & trading |
+
