@@ -70,8 +70,16 @@ This document serves as the authoritative, end-to-end technical blueprint for th
    - Outcome resolution MUST trigger automated payout vector reporting (`[1, 0]` for YES or `[0, 1]` for NO) on `ConditionalTokens`.
 7. **Settlement & Redemption:**
    - Upon market resolution, winning token holders MUST be able to burn their ERC-1155 outcome tokens and redeem `FKToken` collateral at a 1:1 payout ratio.
-8. **Trading Fee Collection:**
-   - The AMM MUST support configurable trading fee percentages (e.g., 2%), which accumulate within the pool to compensate the Liquidity Provider (LP).
+8. **Bidirectional Trading Fee Collection (Both Buy & Sell):**
+   - Trading fees MUST be collected on BOTH buy and sell trades, accumulating into `poolFeeCollected` to provide a robust fee buffer protecting LPs against LMSR bounded loss (Concern 1 Resolution).
+9. **Immutable LP Fee Reward Share & Standalone Fee Harvesting:**
+   - Once set by Admin (`setFeeRewardDistribution`), the LP fee share percentage (`lpRewardRatio`) MUST be permanently locked and immutable (`isLPRatioSet = true`) to prevent admin governance rug-pulls (Concern 4 Resolution).
+   - LPs MUST be able to claim their accrued fee rewards standalone via `claimFeeReward()` without unstaking principal.
+10. **Instant Auto-Allocation & Automated Liquidity Unwinding:**
+    - User liquidity deposits (`depositLiquidity`) MUST auto-allocate instantly to active reserves ($b += \text{amount}$).
+    - LP withdrawals (`withdrawLiquidity`) MUST automatically invoke `ConditionalTokens.mergePositions()` to burn inventory shares and release raw `FKToken` collateral from escrow instantly without manual admin intervention (Concern 2 Resolution).
+11. **Permissioned Access Control:**
+    - The contract MUST support `Whitelist` validation to enforce permissioned participation for stakers and traders.
 
 ### 1.2 Non-Functional Requirements
 1. **Gas Efficiency:**
