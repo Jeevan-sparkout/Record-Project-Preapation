@@ -257,23 +257,23 @@ While integrating user staking directly into the LMSR market maker provides sign
 
 ---
 
-## 3. Summary Matrix of Technical Risks & Mitigations
+## 3. Summary Matrix of Technical Risks & Resolution Status
 
-| Concern # | Priority | Risk Description | Financial / Operational Impact | Technical Mitigation |
+| Concern # | Priority / Status | Risk Description | Financial / Operational Impact | Technical Resolution / Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **1** | 🔴 P0 | LMSR Bounded Loss vs. LP Principal | Potential LP principal decay if fees < directional loss | Admin seed acts as first-loss tranche; fee surcharge buffer |
+| **1** | ✅ **Resolved** | LMSR Bounded Loss vs. LP Principal | Potential LP principal decay if fees < directional loss | **Resolved:** Fees charged on **both buy AND sell trades**; Admin seed acts as first-loss tranche |
 | **2** | 🔴 P0 | LP Withdrawal "1:1 principal + fees" is unrepayable mid-market | Pool drains to insolvency; E2E collateral-leak assertion fails | Mark-to-market LP share of net asset value; restrict mid-market withdrawal; explicit wind-down |
 | **3** | 🔴 P0 | Mid-Market `b` scaling distorts price (instant auto-allocation) | Price jumps create MEV / front-running arbitrage | Rescale liabilities $q_{i,\text{new}} = q_{i,\text{old}} \cdot (b_{\text{new}} / b_{\text{old}})$; freeze `b` post-init; neutral-state-only scaling |
-| **4** | 🔴 P0 | No path for protocol fee share | Protocol fees trapped; `feeRecipient` unused | Add owner `claimProtocolFees()`; track LP vs protocol shares separately |
+| **4** | ✅ **Resolved** | No path for protocol fee share & LP fee rug-pull | Protocol fees trapped; LP fee ratio vulnerable | **Resolved:** `lpRewardRatio` is **permanently locked / immutable** (`isLPRatioSet = true`) + `claimFeeReward()` & protocol fee path added |
 | **5** | 🟠 P1 | Fee on buys only vs. both sides | Spec contradiction; churn risk; LP yield mismatch | Decide & document deliberately; align docs and E2E |
 | **6** | 🟠 P1 | Fixed-point math API mismatch | Reimplemented math bugs; porting won't compile | Reuse `@gnosis.pm/util-contracts` `Fixed192x64Math` or match `binaryLog/pow2(EstimationMode)` API |
 | **7** | 🟠 P1 | Stored `netOutcomeTokensSold` drifts from balances | Corrupt pricing/payouts | Derive `q` from `pmSystem.balanceOf`; keep single source of truth |
-| **8** | 🟠 P1 | Factory signature inconsistency; missing `getOutcomeSlotCount()` | Wrong ABIs; factory cannot init clones | Standardize signature; add getter to CTF spec |
+| **8** | ✅ **Resolved** | Factory signature & `getOutcomeSlotCount()` spec | Wrong ABIs; factory cannot init clones | **Resolved:** Standardized signature with `Whitelist` parameter & `getOutcomeSlotCount()` added to CTF spec |
 | **9** | 🟠 P1 | `onERC1155Received` accepts dust/donations | Inventory pollution corrupts pricing/accounting | Self-only receiver hooks (mirror reference) |
 | **10** | 🟡 P2 | Missing stage machine / whitelist / lifecycle fns | Trading after resolution; no wind-down | Add `stage` enum + pause-before-resolution; optional whitelist |
 | **11** | 🟡 P2 | Sell-side `collateralLimit` sign semantics unspecified | Slippage protection failure on sells | Specify negative-limit = min-payout semantics; add tests |
-| **12** | 🟡 P2 | Doc drift (`allocateDelegatedLiquidity` leftovers) | Contradictory implementation guidance | Sweep docs to instant auto-allocation model |
+| **12** | ✅ **Resolved** | Doc drift (`allocateDelegatedLiquidity` leftovers) | Contradictory implementation guidance | **Resolved:** Swept docs (`ARCHITECTURE.md`, `EXECUTION.md`, guides) to instant auto-allocation model |
 | **13** | 🟡 P2 | `b` convention ambiguity (`funding` vs `funding/lnN`) | Silent pricing/loss-cap drift by factor ln(2) | State convention; lock with 0.5-price & max-loss tests |
 | **14** | 🟡 P2 | Missing trade input validation; token naming drift | Array OOB/mispricing; frontend confusion | Add length require; use `"FKToken"`/`"FKT"` consistently |
-| **15** | ⚠️ | Admin Fee Split Governance Risk | Admin could reduce LP fee share before settlement | Hardcode immutable `MIN_LP_REWARD_RATIO` floor (50%); timelock ratio changes |
-| **16** | ⚠️ | Capital Fragmentation across Pools | Low volume video pools yield 0 fees for stakers | Build automated dynamic `LiquidityVault` router in future phase |
+| **15** | ✅ **Resolved** | Admin Fee Split Governance Risk | Admin could reduce LP fee share before settlement | **Resolved:** Hardcoded immutable fee ratio lock (`isLPRatioSet = true`) + `claimFeeReward()` added |
+| **16** | ⚠️ P2 | Capital Fragmentation across Pools | Low volume video pools yield 0 fees for stakers | Build automated dynamic `LiquidityVault` router in future phase |
