@@ -129,6 +129,45 @@ $$\frac{d P(i)}{d q_i} = \frac{P(i) \cdot (1 - P(i))}{b}$$
 * **After buying 200 YES tokens ($q_{\text{yes}}=200, q_{\text{no}}=0$):**  
   $$P(\text{YES}) = \frac{e^{0.2}}{e^{0.2} + 1.0} = \frac{1.2214}{2.2214} = \mathbf{0.5498 \text{ (\$0.5498 / 54.98\%)}}$$
 
+### 5.4 Worked Scenario A: Balanced But Active Trading ($q_{\text{yes}} = 500, q_{\text{no}} = 500, b = 1000$)
+When both outcomes have been purchased equally, the market is balanced but active:
+1. **Exponent Arguments:**  
+   $$\frac{q_{\text{yes}}}{b} = \frac{500}{1000} = 0.5 \quad \text{and} \quad \frac{q_{\text{no}}}{b} = \frac{500}{1000} = 0.5$$
+2. **Evaluate Exponentials:**  
+   $$\exp(0.5) = e^{0.5} \approx 1.648721 \quad \text{and} \quad \exp(0.5) \approx 1.648721$$
+3. **New Cost $C(500, 500)$:**  
+   $$\text{Sum} = 1.648721 + 1.648721 = 3.297442$$
+   $$C(500, 500) = 1000 \cdot \ln(3.297442) \approx 1000 \cdot 1.193147 = \mathbf{1193.147 \text{ FKToken}}$$
+4. **Evaluate Prices:**  
+   $$P(\text{YES}) = \frac{1.648721}{3.297442} = \mathbf{0.5000 \text{ (50.0\%)}}$$
+   *Insight:* Since quantities sold are identical, the spot price is exactly $0.50$, even though the pool holds $500$ of both outcome tokens.
+
+### 5.5 Worked Scenario B: Asymmetric / Heavily Bought Market ($q_{\text{yes}} = 800, q_{\text{no}} = 200, b = 1000$)
+When traders are heavily biased towards YES:
+1. **Exponent Arguments:**  
+   $$\frac{q_{\text{yes}}}{b} = \frac{800}{1000} = 0.8 \quad \text{and} \quad \frac{q_{\text{no}}}{b} = \frac{200}{1000} = 0.2$$
+2. **Evaluate Exponentials:**  
+   $$\exp(0.8) \approx 2.225541 \quad \text{and} \quad \exp(0.2) \approx 1.221403$$
+3. **New Cost $C(800, 200)$:**  
+   $$\text{Sum} = 2.225541 + 1.221403 = 3.446944$$
+   $$C(800, 200) = 1000 \cdot \ln(3.446944) \approx 1000 \cdot 1.237493 = \mathbf{1237.493 \text{ FKToken}}$$
+4. **Evaluate Prices:**  
+   $$P(\text{YES}) = \frac{2.225541}{3.446944} \approx \mathbf{0.6457 \text{ (64.57\%)}}$$
+   $$P(\text{NO}) = \frac{1.221403}{3.446944} \approx \mathbf{0.3543 \text{ (35.43\%)}}$$
+   *Insight:* The price of YES has risen to $\$0.6457$ while NO has fallen to $\$0.3543$.
+
+### 5.6 Worked Scenario C: Selling Shares Back to the Pool (Negative Cost Delta)
+Suppose Alice holds YES shares and decides to sell $200$ YES tokens back to the pool when the pool is in the state $q_{\text{yes}} = 800, q_{\text{no}} = 200$ (Scenario B).  
+The pool's YES liabilities will drop to $q_{\text{yes, new}} = 600$, while NO remains $q_{\text{no, new}} = 200$.
+
+1. **Calculate New Cost state $C(600, 200)$:**  
+   $$\exp(0.6) \approx 1.822119 \quad \text{and} \quad \exp(0.2) \approx 1.221403$$
+   $$\text{Sum} = 1.822119 + 1.221403 = 3.043522$$
+   $$C(600, 200) = 1000 \cdot \ln(3.043522) \approx 1000 \cdot 1.113017 = \mathbf{1113.017 \text{ FKToken}}$$
+2. **Compute Cost Difference $\Delta C$:**  
+   $$\Delta C = C(600, 200) - C(800, 200) = 1113.017 - 1237.493 = \mathbf{-124.476 \text{ FKToken}}$$
+   *Insight:* The negative cost ($\Delta C < 0$) indicates that the pool **pays out** $124.476\text{ FKToken}$ to the seller. The seller gets an average rate of $\approx \$0.62238$ per share sold.
+
 ---
 
 ## 6. Formula 4: Maximum Bounded Loss Cap
